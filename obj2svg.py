@@ -5,6 +5,7 @@ import sys
 import logging
 import argparse
 
+Z_WARN_NON_ZERO = False
 
 
 LOG = logging.getLogger("obj2svg")
@@ -35,7 +36,7 @@ def obj2svg(obj_file):
         if v_match:
             point = [float(v) for v in v_match.groups()]
             (x, y, z) = point
-            if z != 0:
+            if Z_WARN_NON_ZERO and z != 0:
                 LOG.warning("Point is not in z-plane")
                 sys.exit(1)
             vert_list.append(point)
@@ -63,11 +64,7 @@ def obj2svg(obj_file):
         sys.stdout.write(' Z"/>\n')
     sys.stdout.write('</svg>')
 
-
-
-
-
-
+    LOG.info("%s faces.", len(face_list))
 
 
 
