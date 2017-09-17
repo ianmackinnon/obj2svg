@@ -8,6 +8,7 @@ import argparse
 Z_WARN_NON_ZERO = False
 
 
+
 LOG = logging.getLogger("obj2svg")
 
 
@@ -32,19 +33,23 @@ def obj2svg(obj_file):
         if g_match:
             continue
 
+        vn_match = re.match("vn ([-0-9e.]+) ([-0-9e.]+) ([-0-9e.]+)", line)
+        if vn_match:
+            continue
+
         v_match = re.match("v ([-0-9e.]+) ([-0-9e.]+) ([-0-9e.]+)", line)
         if v_match:
             point = [float(v) for v in v_match.groups()]
-            (x, y, z) = point
+            z = point[2]
             if Z_WARN_NON_ZERO and z != 0:
                 LOG.warning("Point is not in z-plane")
                 sys.exit(1)
             vert_list.append(point)
             continue
 
-        f_match = re.match("f( [-0-9e.]+)+$", line)
+        f_match = re.match("f( [-0-9e./]+)+$", line)
         if f_match:
-            face = [int(v) for v in line.split()[1:]]
+            face = [int(v.split("/")[0]) for v in line.split()[1:]]
             face_list.append(face)
             continue
 
@@ -71,7 +76,8 @@ def obj2svg(obj_file):
 def main():
     LOG.addHandler(logging.StreamHandler())
 
-    parser = argparse.ArgumentParser(description="obj2svg.")
+    parser = argparse.ArgumentParser(
+        description="Convert polygons in an OBJ file to paths in SVG format.")
     parser.add_argument(
         "--verbose", "-v",
         action="count", default=0,
