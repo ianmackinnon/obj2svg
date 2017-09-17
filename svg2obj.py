@@ -6,6 +6,7 @@ import re
 import sys
 import logging
 import argparse
+from math import atan2
 
 import numpy as np
 from bs4 import BeautifulSoup
@@ -111,7 +112,53 @@ def text_to_mm(text):
     )
 
 
-def path_to_poly(path, xform=None):
+def bezier_points(cursor, segment, absolute):
+    """
+    Return absolute points
+    """
+
+    vertex_list = [tuple(cursor)]
+    while segment:
+        vertex = tuple(segment[:2])
+        segment = segment[2:]
+
+        if absolute:
+            vertex_list.append(tuple(vertex))
+        else:
+            vertex_list.append((
+                cursor[0] + vertex[0],
+                cursor[1] + vertex[1]
+            ))
+
+    def point(p0, p1, p2, p3, t):
+        return (
+            p0 * pow((1 - t), 3) +
+            p1 * 3 * pow((1 - t), 2) * t +
+            p2 * 3 * (1 - t) * pow(t, 2) +
+            p3 * pow(t, 3)
+        )
+
+    p = vertex_list
+
+    a1 = atan2(p[1][1] - p[0][1], p[1][0] - p[0][0])
+    a2 = atan2(p[2][1] - p[1][1], p[2][0] - p[1][0])
+    a3 = atan2(p[3][1] - p[2][1], p[3][0] - p[2][0])
+
+    d = abs(a2 - a1) + abs(a3 - a2)
+
+    vertex_list = []
+    n = 1 + int(10 * d)
+    for i in range(n):
+        t = float(i + 1) / n
+        x = point(p[0][0], p[1][0], p[2][0], p[3][0], t)
+        y = point(p[0][1], p[1][1], p[2][1], p[3][1], t)
+        vertex_list.append((x, y))
+
+    return vertex_list
+
+
+
+def path_to_poly(path):
     path = clean_whitespace(path)
     path = re.sub("([A-Za-z])([0-9-])", r"\1 \2", path)
     path = re.sub(",", " ", path)
@@ -129,37 +176,42 @@ def path_to_poly(path, xform=None):
         match = re.compile("[Cc]" + re_multi).match(path)
         if match:
             segment_list = [float(v) for v in match.group(0)[2:].split()]
+            if not poly:
+                poly.append(cursor)
             while segment_list:
                 segment = segment_list[:6]
                 segment_list = segment_list[6:]
 
-                if path.startswith("C"):
-                    cursor[0] = segment[4]
-                    cursor[1] = segment[5]
-                else:
-                    cursor[0] += segment[4]
-                    cursor[1] += segment[5]
-                poly.append(tuple(cursor))
-                LOG.debug("  Path: Cursor draw Bézier curve to %s %s", cursor[0], cursor[1])
+                vertex_list = bezier_points(
+                    cursor, segment, path.startswith("C"))
+
+                for vertex in vertex_list:
+                    cursor = list(vertex)
+                    poly.append(cursor)
+                LOG.debug(
+                    "  Path: Draw Bézier curve segment to %s %s "
+                    "using %d vertices.",
+                    cursor[0], cursor[1], len(vertex_list))
             path = path[match.end():]
             continue
 
         match = re.compile("[Ll]" + re_multi).match(path)
         if match:
             segment_list = [float(v) for v in match.group(0)[2:].split()]
-            poly.append(cursor)
+            if not poly:
+                poly.append(cursor)
             while segment_list:
                 segment = segment_list[:2]
                 segment_list = segment_list[2:]
 
                 if path.startswith("L"):
-                    cursor[0] = segment[0]
-                    cursor[1] = segment[1]
+                    cursor = list(segment)
                 else:
                     cursor[0] += segment[0]
                     cursor[1] += segment[1]
                 poly.append(tuple(cursor))
-                LOG.debug("  Path: Cursor draw line to %s %s", cursor[0], cursor[1])
+                LOG.debug("  Path: Draw line segment to %s %s.",
+                          cursor[0], cursor[1])
             path = path[match.end():]
             continue
 
@@ -172,7 +224,7 @@ def path_to_poly(path, xform=None):
             else:
                 cursor[0] += value[0]
                 cursor[1] += value[1]
-            LOG.debug("  Path: Cursor move to %s %s", cursor[0], cursor[1])
+            LOG.debug("  Path: Move to %s %s.", cursor[0], cursor[1])
             path = path[match.end():]
             continue
 
@@ -184,6 +236,11 @@ def path_to_poly(path, xform=None):
         LOG.error("No handler for path segment: ", path)
         break
 
+    return poly
+
+
+
+def transform_poly(poly, xform):
     return poly
 
 
@@ -206,14 +263,14 @@ def extract_paths(node, xform=None):
             ))
             xform = xform * xform_
         else:
-            LOG.error("No transform procedure defined for '%s'",
+            LOG.warning("No transform procedure defined for '%s'",
                       node["transform"])
-            sys.exit(1)
-
 
     if node.name == "path":
         path = node.attrs["d"]
-        paths.append(path_to_poly(path, xform))
+        poly = path_to_poly(path)
+        transform_poly(poly, xform)
+        paths.append(poly)
 
     elif not hasattr(node, "name"):
         LOG.warning("noname", node)
@@ -258,14 +315,18 @@ def svg2obj(svg_file):
 
 
 def write_obj(paths):
+    """
+    Vertex numbers start from 1.
+    """
+
     vertex_list = []
     face_list = []
 
     for path in paths:
         face = []
         for vertex in path:
-            v = len(vertex_list)
             vertex_list.append(vertex)
+            v = len(vertex_list)
             face.append(v)
         face_list.append(face)
 
@@ -273,9 +334,10 @@ def write_obj(paths):
 
     stream.write("g\n")
     for vertex in vertex_list:
-        stream.write("v %f %f 0\n" % (vertex[0], -vertex[1]))
+        stream.write("v %f %f 0\n" % (vertex[0], vertex[1]))
     for face in face_list:
         stream.write("f %s\n" % " ".join(["%d" % v for v in face]))
+    LOG.info("Wrote %d vertices and %d faces.", len(vertex_list), len(face_list))
 
 
 
