@@ -241,24 +241,39 @@ def path_to_poly(path):
 
 
 def transform_poly(poly, xform):
-    return poly
+    poly2 = []
+    for vertex in poly:
+        # v1 = np.matrix([vertex[0], vertex[1], 0])
+        # v2 = v1 * xform
+        # poly2.append([v2[0, 0], v2[0, 1]])
+
+        v1 = np.matrix([[vertex[0]], [vertex[1]], [1]])
+        v2 = xform * v1
+        poly2.append([v2[0, 0], v2[1, 0]])
+
+    return poly2
 
 
 
-def extract_paths(node, xform=None):
+def extract_paths(node, xform=None, depth=None):
     if xform is None:
         xform = np.identity(3)
+    if depth is None:
+        depth = 0
+
+    if not hasattr(node, "name") or node.name is None:
+        return []
 
     paths = []
 
-    if "transform" in node.attrs:
+    if hasattr(node, "attrs") and "transform" in node.attrs:
         xform_ = clean_whitespace(node["transform"])
         match = RE_MATRIX.match(xform_)
         if match:
             xform_ = [float(v) for v in match.groups()]
             xform_ = np.matrix((
-                xform_[0:3],
-                xform_[3:6],
+                [xform_[0], xform_[2], xform_[4]],
+                [xform_[1], xform_[3], xform_[5]],
                 [0, 0, 1]
             ))
             xform = xform * xform_
@@ -269,18 +284,21 @@ def extract_paths(node, xform=None):
     if node.name == "path":
         path = node.attrs["d"]
         poly = path_to_poly(path)
-        transform_poly(poly, xform)
+        poly = transform_poly(poly, xform)
         paths.append(poly)
-
-    elif not hasattr(node, "name"):
-        LOG.warning("noname", node)
 
     elif node.name in ["svg", "g"]:
         for child in node:
-            paths += extract_paths(child, xform)
+            paths += extract_paths(child, xform, depth + 1)
+
+    elif node.name.startswith("sodipodi"):
+        pass
+
+    elif node.name in ["metadata", "defs"]:
+        pass
 
     else:
-        LOG.debug("Ignore node: %s", node.name)
+        LOG.warning("Ignoring node: %s", node.name)
 
 
     return paths
@@ -334,7 +352,7 @@ def write_obj(paths):
 
     stream.write("g\n")
     for vertex in vertex_list:
-        stream.write("v %f %f 0\n" % (vertex[0], vertex[1]))
+        stream.write("v %f %f 0\n" % (vertex[0], -vertex[1]))
     for face in face_list:
         stream.write("f %s\n" % " ".join(["%d" % v for v in face]))
     LOG.info("Wrote %d vertices and %d faces.", len(vertex_list), len(face_list))
