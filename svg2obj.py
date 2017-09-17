@@ -317,16 +317,32 @@ def svg2obj(svg_file):
     soup = BeautifulSoup(svg_text, "lxml")
 
     svg = soup.find("svg")
+    xform = None
 
-    width = svg["width"]
-    height = svg["height"]
+    width = svg.get("width", None)
+    height = svg.get("height", None)
+    viewbox = svg.get("viewbox", None)
 
-    width = text_to_mm(width)
-    height = text_to_mm(height)
+    if width and height and viewbox:
+        width = text_to_mm(width)
+        height = text_to_mm(height)
+        viewbox = [int(v) for v in viewbox.split()]
+        unit_scale = [
+            width / viewbox[2],
+            height / viewbox[3]
+        ]
 
-    LOG.info("Page size (mm): %0.3f x %0.3f", width, height)
+        LOG.info("Page size (mm): %0.3f x %0.3f", width, height)
+        LOG.info("View box: %0.3f %0.3f %0.3f %0.3f", *viewbox)
+        LOG.info("Unit scale: %0.3f,%0.3f", *unit_scale)
 
-    paths = extract_paths(svg)
+        xform = np.matrix([
+            [unit_scale[0], 0, 0],
+            [0, unit_scale[1], 0],
+            [0, 0, 1]
+        ])
+
+    paths = extract_paths(svg, xform)
 
     write_obj(paths)
 
