@@ -21,5 +21,6 @@
 
 ## Caveats
 
--   `svg2obj` currently only converts linear and Bézier spline line-segments.
--   `svg2obj` only processes matrix transforms, ignoring eg. rotate transforms.
+-   `svg2obj` currently only paths, not regular objects
+-   `svg2obj` currently only path commands MmLlHhVvCcZz
+-   `svg2obj` only processes matrix and translate transformations, ignoring rotate and scale transformations.

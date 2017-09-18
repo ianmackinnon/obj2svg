@@ -73,19 +73,6 @@ color_log(LOG)
 
 
 
-RE_MATRIX = re.compile(r"""
-matrix\(
-(-?[0-9.]+),
-(-?[0-9.]+),
-(-?[0-9.]+),
-(-?[0-9.]+),
-(-?[0-9.]+),
-(-?[0-9.]+)
-\)
-""", re.X)
-
-
-
 def clean_whitespace(text):
     return re.sub(r"[\s]+", " ", text).strip()
 
@@ -112,7 +99,7 @@ def text_to_mm(text):
     )
 
 
-def bezier_points(cursor, segment, absolute):
+def poly_points_bezier(_command, cursor, segment, absolute):
     """
     Return absolute points
     """
@@ -158,83 +145,99 @@ def bezier_points(cursor, segment, absolute):
 
 
 
+def poly_points_linear(command, cursor, segment, absolute):
+    """
+    Return absolute points
+    """
+
+    if command.upper() == "H":
+        segment.insert(1, cursor[1] if absolute else 0)
+    if command.upper() == "V":
+        segment.insert(0, cursor[0] if absolute else 0)
+
+    if absolute:
+        return [list(segment)]
+
+    return [[
+        cursor[0] + segment[0],
+        cursor[1] + segment[1],
+    ]]
+
+
+
 def path_to_poly(path):
-    path = clean_whitespace(path)
-    path = re.sub("([A-Za-z])([0-9-])", r"\1 \2", path)
+    path = " " + clean_whitespace(path)
+    path = re.compile(" ([mlhvzcsqta])([0-9-])", re.I).sub(r"\1 \2", path)
     path = re.sub(",", " ", path)
 
-    LOG.debug("  Path: Convert '%s'", path)
+    handlers = {
+        "M": {
+            "length": 2,
+            "draw": False,
+            "path": poly_points_linear,
+        },
+        "L": {
+            "length": 2,
+            "path": poly_points_linear,
+        },
+        "H": {
+            "length": 1,
+            "path": poly_points_linear,
+        },
+        "V": {
+            "length": 1,
+            "path": poly_points_linear,
+        },
+        "Z": {
+            "length": 0,
+        },
+        "C": {
+            "length": 6,
+            "path": poly_points_bezier,
+        },
+    }
+
+
     poly = []
     cursor = [0, 0]
-    re_value = r" (-?[0-9.]+)"
-    re_multi = "(?:" + re_value + ")+"
-    while True:
-        path = re.sub("^ ", "", path)
-        if not path:
+    command_list = re.compile(" ([mlhvzcsqta])", re.I).split(path)[1:]
+    for i in range(0, len(command_list), 2):
+        command = command_list[i]
+        absolute = command == command.upper()
+        values = clean_whitespace(command_list[i + 1]).split()
+
+        try:
+            handler = handlers[command.upper()]
+        except KeyError:
+            LOG.error("No handler for path segment: %s %s",
+                      command, values)
             break
 
-        match = re.compile("[Cc]" + re_multi).match(path)
-        if match:
-            segment_list = [float(v) for v in match.group(0)[2:].split()]
-            if not poly:
-                poly.append(cursor)
-            while segment_list:
-                segment = segment_list[:6]
-                segment_list = segment_list[6:]
+        try:
+            values = [float(v) for v in values]
+        except ValueError:
+            LOG.error("Could not convert all values to float: %s",
+                      values)
+            break
 
-                vertex_list = bezier_points(
-                    cursor, segment, path.startswith("C"))
+        if handler.get("draw", True) and not poly:
+            poly.append(cursor)
 
-                for vertex in vertex_list:
-                    cursor = list(vertex)
+        while values:
+            segment = values[:handler["length"]]
+            values = values[handler["length"]:]
+            if "value" in handler:
+                segment = handler["value"](segment)
+
+            if not "path" in handler:
+                break
+
+            vertex_list = handler["path"](
+                command, cursor, segment, absolute)
+            for vertex in vertex_list:
+                cursor = list(vertex)
+                if handler.get("draw", True):
                     poly.append(cursor)
-                LOG.debug(
-                    "  Path: Draw Bézier curve segment to %s %s "
-                    "using %d vertices.",
-                    cursor[0], cursor[1], len(vertex_list))
-            path = path[match.end():]
-            continue
-
-        match = re.compile("[Ll]" + re_multi).match(path)
-        if match:
-            segment_list = [float(v) for v in match.group(0)[2:].split()]
-            if not poly:
-                poly.append(cursor)
-            while segment_list:
-                segment = segment_list[:2]
-                segment_list = segment_list[2:]
-
-                if path.startswith("L"):
-                    cursor = list(segment)
-                else:
-                    cursor[0] += segment[0]
-                    cursor[1] += segment[1]
-                poly.append(tuple(cursor))
-                LOG.debug("  Path: Draw line segment to %s %s.",
-                          cursor[0], cursor[1])
-            path = path[match.end():]
-            continue
-
-        match = re.compile("[Mm]" + (re_value * 2)).match(path)
-        if match:
-            value = [float(v) for v in match.groups()]
-            if path.startswith("M"):
-                cursor[0] = value[0]
-                cursor[1] = value[1]
-            else:
-                cursor[0] += value[0]
-                cursor[1] += value[1]
-            LOG.debug("  Path: Move to %s %s.", cursor[0], cursor[1])
-            path = path[match.end():]
-            continue
-
-        match = re.compile("[Zz]").match(path)
-        if match:
-            LOG.debug("  Path: End\n")
-            break
-
-        LOG.error("No handler for path segment: ", path)
-        break
 
     return poly
 
@@ -243,15 +246,63 @@ def path_to_poly(path):
 def transform_poly(poly, xform):
     poly2 = []
     for vertex in poly:
-        # v1 = np.matrix([vertex[0], vertex[1], 0])
-        # v2 = v1 * xform
-        # poly2.append([v2[0, 0], v2[0, 1]])
-
         v1 = np.matrix([[vertex[0]], [vertex[1]], [1]])
         v2 = xform * v1
         poly2.append([v2[0, 0], v2[1, 0]])
-
     return poly2
+
+
+
+def parse_transform(text):
+    text = clean_whitespace(text)
+
+    match = re.compile(r"""
+matrix\(
+(-?[0-9.]+),
+(-?[0-9.]+),
+(-?[0-9.]+),
+(-?[0-9.]+),
+(-?[0-9.]+),
+(-?[0-9.]+)
+\)""", re.X).match(text)
+    if match:
+        xform = [float(v) for v in match.groups()]
+        return np.matrix((
+            [xform[0], xform[2], xform[4]],
+            [xform[1], xform[3], xform[5]],
+            [0, 0, 1]
+        ))
+
+    match = re.compile(r"""
+translate\(
+(-?[0-9.]+),
+(-?[0-9.]+)
+\)
+""", re.X).match(text)
+    if match:
+        xform = [float(v) for v in match.groups()]
+        return np.matrix((
+            [1, 0, xform[0]],
+            [0, 1, xform[1]],
+            [0, 0, 1]
+        ))
+
+    match = re.compile(r"""
+scale\(
+(-?[0-9.]+),
+(-?[0-9.]+)
+\)
+""", re.X).match(text)
+    if match:
+        xform = [float(v) for v in match.groups()]
+        return np.matrix((
+            [xform[0], 0, 0],
+            [0, xform[1], 0],
+            [0, 0, 1]
+        ))
+
+    LOG.warning(
+        "No transform procedure defined for '%s'", text)
 
 
 
@@ -267,19 +318,9 @@ def extract_paths(node, xform=None, depth=None):
     paths = []
 
     if hasattr(node, "attrs") and "transform" in node.attrs:
-        xform_ = clean_whitespace(node["transform"])
-        match = RE_MATRIX.match(xform_)
-        if match:
-            xform_ = [float(v) for v in match.groups()]
-            xform_ = np.matrix((
-                [xform_[0], xform_[2], xform_[4]],
-                [xform_[1], xform_[3], xform_[5]],
-                [0, 0, 1]
-            ))
+        xform_ = parse_transform(node["transform"])
+        if xform_ is not None:
             xform = xform * xform_
-        else:
-            LOG.warning("No transform procedure defined for '%s'",
-                      node["transform"])
 
     if node.name == "path":
         path = node.attrs["d"]
@@ -371,7 +412,8 @@ def write_obj(paths):
         stream.write("v %f %f 0\n" % (vertex[0], -vertex[1]))
     for face in face_list:
         stream.write("f %s\n" % " ".join(["%d" % v for v in face]))
-    LOG.info("Wrote %d vertices and %d faces.", len(vertex_list), len(face_list))
+    LOG.info("Wrote %d vertices and %d faces.",
+             len(vertex_list), len(face_list))
 
 
 
