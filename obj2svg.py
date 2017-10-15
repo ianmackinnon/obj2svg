@@ -13,7 +13,7 @@ LOG = logging.getLogger("obj2svg")
 
 
 
-def obj2svg(obj_file):
+def obj2svg(obj_file, unit=""):
     LOG.info(obj_file.name)
 
     obj_text = obj_file.read()
@@ -22,6 +22,11 @@ def obj2svg(obj_file):
     face_list = []
 
     obj_text = re.compile(r"\s*\\\n\s*").sub(" ", obj_text)
+
+    x_min = None
+    y_min = None
+    x_max = None
+    y_max = None
 
     for line in obj_text.splitlines():
         line = re.sub("#.*$", "", line)
@@ -40,7 +45,11 @@ def obj2svg(obj_file):
         v_match = re.match("v ([-0-9e.]+) ([-0-9e.]+) ([-0-9e.]+)", line)
         if v_match:
             point = [float(v) for v in v_match.groups()]
-            z = point[2]
+            (x, y, z) = point
+            x_min = x if x_min is None else min(x_min, x)
+            y_min = y if y_min is None else min(y_min, y)
+            x_max = x if x_max is None else max(x_max, x)
+            y_max = y if y_max is None else max(y_max, y)
             if Z_WARN_NON_ZERO and z != 0:
                 LOG.warning("Point is not in z-plane")
                 sys.exit(1)
@@ -56,7 +65,17 @@ def obj2svg(obj_file):
         LOG.error(line)
         sys.exit(1)
 
-    sys.stdout.write('<svg height="210" width="400">\n')
+    width = x_max - x_min
+    height = y_max - y_min
+
+    sys.stdout.write('''<svg
+  xmlns:svg="http://www.w3.org/2000/svg"
+  xmlns="http://www.w3.org/2000/svg"
+  width="%f%s"
+  height="%f%s"
+  viewBox="%f %f %f %f"
+>
+''' % (width, unit, height, unit, 0, 0, width, height))
     for face in face_list:
         sys.stdout.write('  <path d=\"')
         for i, v in enumerate(face):
@@ -88,6 +107,11 @@ def main():
         help="Suppress warnings.")
 
     parser.add_argument(
+        "--unit", "-u",
+        action="store", default="",
+        help="Units, eg. “mm”, “px”.")
+
+    parser.add_argument(
         "obj",
         metavar="OBJ",
         type=argparse.FileType("r", encoding="utf-8"),
@@ -99,7 +123,7 @@ def main():
         max(0, min(3, 1 + args.verbose - args.quiet))]
     LOG.setLevel(level)
 
-    obj2svg(args.obj)
+    obj2svg(args.obj, unit=args.unit)
 
 
 
