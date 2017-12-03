@@ -301,6 +301,19 @@ scale\(
             [0, 0, 1]
         ))
 
+    match = re.compile(r"""
+scale\(
+(-?[0-9.]+)
+\)
+""", re.X).match(text)
+    if match:
+        xform = [float(v) for v in match.groups()]
+        return np.matrix((
+            [xform[0], 0, 0],
+            [0, xform[0], 0],
+            [0, 0, 1]
+        ))
+
     LOG.warning(
         "No transform procedure defined for '%s'", text)
 
