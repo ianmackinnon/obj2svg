@@ -4,6 +4,7 @@
 
 import re
 import sys
+import math
 import logging
 import argparse
 from math import atan2
@@ -125,16 +126,30 @@ def poly_points_bezier(_command, cursor, segment, absolute):
             p3 * pow(t, 3)
         )
 
+    def ang_diff(a1, a2):
+        diff = a2 - a1
+        if diff > math.pi:
+            diff -= 2 * math.pi
+        if diff < -math.pi:
+            diff += 2 * math.pi
+        return diff
+
     p = vertex_list
 
     a1 = atan2(p[1][1] - p[0][1], p[1][0] - p[0][0])
     a2 = atan2(p[2][1] - p[1][1], p[2][0] - p[1][0])
     a3 = atan2(p[3][1] - p[2][1], p[3][0] - p[2][0])
 
-    d = abs(a2 - a1) + abs(a3 - a2)
+    d1 = ang_diff(a1, a2)
+    d2 = ang_diff(a2, a3)
+    dx = p[3][0] - p[0][0]
+    dy = p[3][1] - p[0][1]
+
+    length = math.sqrt(dx * dx + dy * dy)
+    d = abs(d1) + abs(d2)
 
     vertex_list = []
-    n = 1 + int(10 * d)
+    n = 1 + int(10 * d) +  int(length / 100)
     for i in range(n):
         t = float(i + 1) / n
         x = point(p[0][0], p[1][0], p[2][0], p[3][0], t)
@@ -239,6 +254,9 @@ def path_to_poly(path):
                 if handler.get("draw", True):
                     poly.append(cursor)
 
+    # Invert Y
+    poly = [(v[0], -v[1]) for v in poly]
+
     return poly
 
 
@@ -332,6 +350,7 @@ def extract_paths(node, xform=None, depth=None):
 
     if hasattr(node, "attrs") and "transform" in node.attrs:
         xform_ = parse_transform(node["transform"])
+        LOG.warning(xform_)
         if xform_ is not None:
             xform = xform * xform_
 
@@ -342,6 +361,9 @@ def extract_paths(node, xform=None, depth=None):
         paths.append(poly)
 
     elif node.name in ["svg", "g"]:
+        label = node.get("inkscape:label", None)
+        if label:
+            LOG.info(label)
         for child in node:
             paths += extract_paths(child, xform, depth + 1)
 
@@ -422,7 +444,7 @@ def write_obj(paths):
 
     stream.write("g\n")
     for vertex in vertex_list:
-        stream.write("v %f %f 0\n" % (vertex[0], -vertex[1]))
+        stream.write("v %f %f 0\n" % (vertex[0], vertex[1]))
     for face in face_list:
         stream.write("f %s\n" % " ".join(["%d" % v for v in face]))
     LOG.info("Wrote %d vertices and %d faces.",
