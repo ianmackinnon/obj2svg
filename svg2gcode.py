@@ -33,9 +33,9 @@ def paths_to_gcode(out, paths, offset):
     """
 
     out.write("""
-M92   X160   Y80  Z800   E279  ; Set steps-per-unit
+M92   X160   Y160  Z800   E300  ; Set steps-per-unit
 M201 X500 Y500  Z50 E10000  ; Set max print acceleration
-M203  X300  Y300    Z30    E25  ; Set max feedrate
+M203  X300  Y300    Z5    E25  ; Set max feedrate
 M204   P3500   R3500   T3500   ; Set default acceleration (Print, Retract, Travel)
 M205   X15   Y15               ; Set jerk
 
