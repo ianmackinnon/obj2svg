@@ -77,7 +77,7 @@ def dist2d(a, b):
 
 
 
-def order_paths(path_list):
+def order_paths(path_list, allow_reverse=False):
     index = defaultdict(list)
 
     for i, path in enumerate(path_list):
@@ -85,15 +85,16 @@ def order_paths(path_list):
             continue
 
         start = tuple(path[0])
-        end = tuple(path[-1])
         index[start].append({
             "i": i,
             "reverse": False
         })
-        index[end].append({
-            "i": i,
-            "reverse": True
-        })
+        if allow_reverse:
+            end = tuple(path[-1])
+            index[end].append({
+                "i": i,
+                "reverse": True
+            })
 
     out_list = []
     cursor = (0, 0)
@@ -108,12 +109,14 @@ def order_paths(path_list):
             del index[start]
         i = item["i"]
         path = path_list[i]
-        if item["reverse"]:
-            path = path[::-1]
-        end = tuple(path[-1])
-        index[end] = [v for v in index[end] if v["i"] != i]
-        if not index[end]:
-            del index[end]
+
+        if allow_reverse:
+            if item["reverse"]:
+                path = path[::-1]
+            end = tuple(path[-1])
+            index[end] = [v for v in index[end] if v["i"] != i]
+            if not index[end]:
+                del index[end]
 
         out_list.append(path)
         cursor = path[-1]
