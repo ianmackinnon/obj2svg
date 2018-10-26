@@ -293,8 +293,8 @@ rotate\(
             [0, 1, xform[2]],
             [0, 0, 1]
         )) * np.matrix((
-            [math.cos(theta), math.sin(theta), 0],
-            [-math.sin(theta), math.cos(theta), 0],
+            [math.cos(theta), -math.sin(theta), 0],
+            [math.sin(theta), math.cos(theta), 0],
             [0, 0, 1]
         )) * np.matrix((
             [1, 0, -xform[1]],
