@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import os
 import re
 import sys
+import shutil
 import logging
 import argparse
 from collections import defaultdict
+from tempfile import NamedTemporaryFile
 
 from common import color_log, clean_whitespace
 
@@ -17,7 +20,7 @@ color_log(LOG)
 
 
 
-def obj2svg(obj_file, unit=""):
+def obj2svg(out, obj_file, unit=""):
     LOG.info(obj_file.name)
 
     obj_text = obj_file.read()
@@ -75,7 +78,7 @@ def obj2svg(obj_file, unit=""):
 
     face_list = remove_backtracks(face_list)
 
-    write_svg(face_list, vert_list, width, height, unit)
+    write_svg(out, face_list, vert_list, width, height, unit)
 
 
 
@@ -146,8 +149,8 @@ def remove_backtracks(face_list):
 
 
 
-def write_svg(face_list, vert_list, width, height, unit):
-    sys.stdout.write('''<svg
+def write_svg(out, face_list, vert_list, width, height, unit):
+    out.write('''<svg
   xmlns:svg="http://www.w3.org/2000/svg"
   xmlns="http://www.w3.org/2000/svg"
   width="%f%s"
@@ -157,7 +160,7 @@ def write_svg(face_list, vert_list, width, height, unit):
 ''' % (width, unit, height, unit, 0, 0, width, height))
 
     if unit:
-        sys.stdout.write('''<sodipodi:namedview
+        out.write('''<sodipodi:namedview
      inkscape:document-units="%s"
      units="%s"
 />
@@ -165,16 +168,16 @@ def write_svg(face_list, vert_list, width, height, unit):
 
 
     for face in face_list:
-        sys.stdout.write('  <path style="fill:none;stroke:#000000;stroke-width:0.1;stroke-miterlimit:4;stroke-dasharray:none" d=\"')
+        out.write('  <path style="fill:none;stroke:#000000;stroke-width:0.1;stroke-miterlimit:4;stroke-dasharray:none" d=\"')
         for i, v in enumerate(face):
             vert = vert_list[v - 1]
-            sys.stdout.write(" %s%f %f" % (
+            out.write(" %s%f %f" % (
                 "M" if i == 0 else "L",
                 vert[0],
                 vert[1],
             ))
-        sys.stdout.write(' Z"/>\n')
-    sys.stdout.write('</svg>')
+        out.write(' Z"/>\n')
+    out.write('</svg>')
 
     LOG.info("%s faces.", len(face_list))
 
@@ -204,8 +207,13 @@ def main():
     parser.add_argument(
         "obj",
         metavar="OBJ",
-        type=argparse.FileType("r", encoding="utf-8"),
         help="Path to OBJ file.")
+
+    parser.add_argument(
+        "svg",
+        metavar="SVG",
+        nargs="?",
+        help="Path to SVG file.")
 
     args = parser.parse_args()
 
@@ -213,7 +221,19 @@ def main():
         max(0, min(3, 1 + args.verbose - args.quiet))]
     LOG.setLevel(level)
 
-    obj2svg(args.obj, unit=args.unit)
+    if args.svg:
+        out = NamedTemporaryFile("w", encoding="utf=8", delete=False)
+        os.fchmod(out.fileno(), os.stat(args.obj).st_mode)
+    else:
+        out = sys.stdout
+
+    with open(args.obj, "r", encoding="utf-8") as obj:
+        obj2svg(out, obj, unit=args.unit)
+
+    if args.svg:
+        out.close()
+        shutil.move(out.name, args.svg)
+
 
 
 
